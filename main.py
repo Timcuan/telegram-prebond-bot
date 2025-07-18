@@ -449,29 +449,9 @@ Example: `/monitor 2Z4FzKBcw48KBD2PaR4wtxo4sYGbS7QqTQCLoQnUpump`
         """Run the bot"""
         logger.info("Starting Bonding Curve Monitor Bot...")
         
-        # Initialize the application
-        await self.application.initialize()
-        await self.application.start()
-        
         # Start the bot
-        await self.application.updater.start_polling()
-        
-        logger.info("Bot is running! Press Ctrl+C to stop.")
-        
-        try:
-            # Keep the bot running
-            while True:
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            logger.info("Shutting down bot...")
-        finally:
-            # Cancel all monitoring tasks
-            for task in self.monitoring_tasks.values():
-                task.cancel()
-            
-            await self.application.stop()
-            await self.application.shutdown()
+        await self.application.run_polling()
 
 if __name__ == "__main__":
     bot = BondingCurveMonitorBot()
-    asyncio.run(bot.run())
+    bot.application.run_polling()
