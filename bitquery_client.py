@@ -359,9 +359,12 @@ class BitqueryClient:
         except Exception as e:
             print(f"WebSocket error: {e}")
     
-    def calculate_bonding_curve_progress(self, balance: int) -> float:
+    def calculate_bonding_curve_progress(self, balance) -> float:
         """Calculate bonding curve progress from balance"""
         # Formula: BondingCurveProgress = 100 - (((balance - 206900000) * 100) / 793100000)
+        # Convert balance to float to handle decimal values
+        balance = float(balance)
+        
         if balance <= 206900000:
             return 100.0
         

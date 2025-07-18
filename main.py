@@ -294,7 +294,7 @@ Example: `/monitor 2Z4FzKBcw48KBD2PaR4wtxo4sYGbS7QqTQCLoQnUpump`
                     name = base_currency.get('Name', 'Unknown')
                     symbol = base_currency.get('Symbol', 'Unknown')
                     mint_address = base_currency.get('MintAddress', '')
-                    balance = int(base.get('PostAmount', 0))
+                    balance = base.get('PostAmount', 0)
                     price_usd = quote.get('PriceInUSD', 0)
                     
                     # Calculate bonding curve progress
@@ -333,7 +333,7 @@ Example: `/monitor 2Z4FzKBcw48KBD2PaR4wtxo4sYGbS7QqTQCLoQnUpump`
                         if bonding_data:
                             pool = bonding_data.get('Pool', {})
                             base = pool.get('Base', {})
-                            balance = int(base.get('PostAmount', 0))
+                            balance = base.get('PostAmount', 0)
                             bonding_progress = client.calculate_bonding_curve_progress(balance)
                         
                         # Store data
@@ -415,7 +415,7 @@ Example: `/monitor 2Z4FzKBcw48KBD2PaR4wtxo4sYGbS7QqTQCLoQnUpump`
             base = pool.get('Base', {})
             quote = pool.get('Quote', {})
             
-            balance = int(base.get('PostAmount', 0))
+            balance = base.get('PostAmount', 0)
             quote_amount = float(quote.get('PostAmount', 0))
             
             # Calculate bonding curve progress
