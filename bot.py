@@ -1,90 +1,108 @@
 import os
-import logging
 import requests
-import asyncio
-from telegram import Update, Bot
+import logging
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from dotenv import load_dotenv
 
-# Load env dari file .env
-load_dotenv()
+# Ambil token dan config dari environment variables
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+BITQUERY_API_KEY = os.getenv('BITQUERY_API_KEY')
+CHAT_ID = int(os.getenv('CHAT_ID'))  # pastikan ini angka
 
-# Setup log
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-# Konfigurasi
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-BITQUERY_API_KEY = os.getenv("BITQUERY_API_KEY")
-BITQUERY_URL = "https://graphql.bitquery.io/"
+BITQUERY_API_URL = "https://graphql.bitquery.io/"
 
-# Query untuk LetsBonk.fun prebond token
-GRAPHQL_QUERY = '''
-query ($limit: Int!) {
-  solana(network: solana) {
-    dexTrades(
-      options: {limit: $limit, desc: "quoteAmount"},
-      exchangeName: {in: ["LetsBonk.fun"]},
-      tradeAmountUsd: {gt: 0.0}
-    ) {
-      token: baseCurrency {
-        symbol
-        address
+# Fungsi ambil data prebond dan filter whale
+def fetch_prebond_whale_tokens(whale_threshold=100000):
+    query = """
+    query ($network: String!) {
+      solana(network: $network) {
+        transfers(
+          options: {desc: "amount", limit: 50}
+          amount: {gt: 1000}
+        ) {
+          currency {
+            symbol
+            address
+          }
+          amount
+          sender {
+            address
+          }
+          receiver {
+            address
+          }
+          transaction {
+            hash
+            timestamp {
+              time
+            }
+          }
+        }
       }
-      trade: trades: count
-      quoteAmount
     }
-  }
-}
-'''
+    """
+    headers = {
+        "X-API-KEY": BITQUERY_API_KEY
+    }
+    variables = {"network": "solana"}
+    response = requests.post(BITQUERY_API_URL, json={'query': query, 'variables': variables}, headers=headers)
+    data = response.json()
 
-# Penyimpanan token yang sudah dilaporkan
-known_tokens = set()
+    tokens = []
+    for tx in data.get('data', {}).get('solana', {}).get('transfers', []):
+        amount = float(tx['amount'])
+        if amount >= whale_threshold:
+            tokens.append(tx)
+    return tokens
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚀 Bot tracking prebond memecoin aktif!\nTunggu notifikasi token baru...")
-    context.job_queue.run_repeating(fetch_and_report, interval=300, first=5, data=context.bot)
+    await update.message.reply_text("🚀 Bot prebond sniper siap jalan! Ketik /whale untuk cek whale terbaru.")
 
-async def fetch_and_report(context: ContextTypes.DEFAULT_TYPE):
-    headers = {
-        'X-API-KEY': BITQUERY_API_KEY,
-        'Content-Type': 'application/json'
-    }
-    payload = {
-        'query': GRAPHQL_QUERY,
-        'variables': {'limit': 50}
-    }
-
-    try:
-        response = requests.post(BITQUERY_URL, json=payload, headers=headers)
-        data = response.json()['data']['solana']['dexTrades']
-    except Exception as e:
-        logger.error(f"Gagal fetch dari Bitquery: {e}")
+async def whale(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tokens = fetch_prebond_whale_tokens()
+    if not tokens:
+        await update.message.reply_text("🤷‍♂️ Belum ada whale prebond besar hari ini.")
         return
 
-    bot: Bot = context.job.data
-    new_tokens = []
+    msg = "🐋 *Whale Alert Prebond Tokens:*\n\n"
+    for tx in tokens[:5]:  # batasi 5 token terbaru
+        symbol = tx['currency']['symbol']
+        amount = tx['amount']
+        sender = tx['sender']['address']
+        receiver = tx['receiver']['address']
+        tx_hash = tx['transaction']['hash']
+        time = tx['transaction']['timestamp']['time']
+        msg += f"Token: {symbol}\nAmount: {amount}\nFrom: {sender}\nTo: {receiver}\nTx: https://solscan.io/tx/{tx_hash}\nTime: {time}\n\n"
 
-    for item in data:
-        symbol = item['token']['symbol']
-        address = item['token']['address']
-        volume = float(item['quoteAmount'])
+    await update.message.reply_markdown(msg)
 
-        if address not in known_tokens:
-            known_tokens.add(address)
-            new_tokens.append((symbol, address, volume))
+async def whale_alert_job(context: ContextTypes.DEFAULT_TYPE):
+    tokens = fetch_prebond_whale_tokens()
+    if not tokens:
+        return
+    for tx in tokens:
+        message = (
+            f"🐋 Whale Alert!\n"
+            f"Token: {tx['currency']['symbol']}\n"
+            f"Amount: {tx['amount']}\n"
+            f"From: {tx['sender']['address']}\n"
+            f"Tx: https://solscan.io/tx/{tx['transaction']['hash']}"
+        )
+        await context.bot.send_message(chat_id=CHAT_ID, text=message)
 
-    for symbol, address, volume in new_tokens:
-        message = f"🧪 *New Prebond Token!*\n\n🔸 Symbol: `{symbol}`\n🔹 Volume: ${volume:.2f}\n📦 Address: `{address}`\n🔍 https://explorer.solana.com/address/{address}?cluster=mainnet"
-        await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
-
-if __name__ == '__main__':
-    if not TELEGRAM_BOT_TOKEN or not CHAT_ID or not BITQUERY_API_KEY:
-        logger.error("❌ API keys belum lengkap. Cek file .env")
-        exit(1)
-
+if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    logger.info("✅ Bot siap. Jalankan /start di Telegram.")
+    app.add_handler(CommandHandler("whale", whale))
+
+    # Jalankan job whale alert setiap 5 menit
+    job_queue = app.job_queue
+    job_queue.run_repeating(whale_alert_job, interval=300, first=10)
+
     app.run_polling()
